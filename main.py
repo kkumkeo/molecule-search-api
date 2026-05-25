@@ -1,10 +1,15 @@
+import json
 import logging
 import os
 from typing import List
 
+import redis
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, create_engine
+from rdkit import Chem
+from sqlalchemy import Column, Integer, String, create_engine, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from modules.module1 import substructure_search
@@ -19,6 +24,12 @@ DATABASE_URL = os.getenv(
     "sqlite:///./molecules.db"
 )
 
+REDIS_URL = os.getenv(
+    "REDIS_URL",
+    "redis://localhost:6379/0"
+)
+
+
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         DATABASE_URL,
@@ -27,6 +38,7 @@ if DATABASE_URL.startswith("sqlite"):
 else:
     engine = create_engine(DATABASE_URL)
 
+
 SessionLocal = sessionmaker(
     bind=engine,
     autocommit=False,
@@ -34,6 +46,16 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+
+try:
+    redis_client = redis.from_url(
+        REDIS_URL,
+        decode_responses=True
+    )
+    redis_client.ping()
+except redis.RedisError:
+    redis_client = None
 
 
 class Molecule(Base):
@@ -64,6 +86,13 @@ class SearchRequest(BaseModel):
 
 app = FastAPI(title="Molecule Search API")
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+def index():
+    return FileResponse("static/index.html")
+
 
 def get_db():
     db = SessionLocal()
@@ -73,14 +102,80 @@ def get_db():
         db.close()
 
 
+def check_smiles(smiles: str):
+    if not smiles.strip():
+        raise HTTPException(status_code=422, detail="SMILES is empty")
+
+    molecule = Chem.MolFromSmiles(smiles)
+
+    if molecule is None:
+        raise HTTPException(status_code=422, detail="Incorrect SMILES")
+
+
+def get_cache_key(substructure: str):
+    return "search:" + substructure.strip()
+
+
+def get_cached_result(substructure: str):
+    if redis_client is None:
+        return None
+
+    key = get_cache_key(substructure)
+
+    try:
+        data = redis_client.get(key)
+    except redis.RedisError:
+        return None
+
+    if data is None:
+        return None
+
+    return json.loads(data)
+
+
+def save_cached_result(substructure: str, result):
+    if redis_client is None:
+        return
+
+    key = get_cache_key(substructure)
+
+    try:
+        redis_client.setex(
+            key,
+            300,
+            json.dumps(result)
+        )
+    except redis.RedisError:
+        pass
+
+
+def clear_search_cache():
+    if redis_client is None:
+        return
+
+    try:
+        keys = list(redis_client.scan_iter("search:*"))
+        if keys:
+            redis_client.delete(*keys)
+    except redis.RedisError:
+        pass
+
+
 @app.post("/molecules")
 def add_molecule(item: MoleculeCreate, db: Session = Depends(get_db)):
     logger.info("POST /molecules")
 
-    molecule = Molecule(smiles=item.smiles, name=item.name)
+    smiles = item.smiles.strip()
+    name = item.name.strip()
+
+    check_smiles(smiles)
+
+    molecule = Molecule(smiles=smiles, name=name)
     db.add(molecule)
     db.commit()
     db.refresh(molecule)
+
+    clear_search_cache()
 
     return {
         "status": "added",
@@ -100,9 +195,19 @@ def list_molecules(
 ):
     logger.info("GET /molecules")
 
+    if skip < 0:
+        skip = 0
+
+    if limit <= 0:
+        limit = 10
+
+    total = db.query(func.count(Molecule.id)).scalar()
     molecules = db.query(Molecule).offset(skip).limit(limit).all()
 
     return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
         "molecules": [
             {
                 "id": molecule.id,
@@ -143,11 +248,18 @@ def update_molecule(
     if molecule is None:
         raise HTTPException(status_code=404, detail="Molecule not found")
 
-    molecule.smiles = item.smiles
-    molecule.name = item.name
+    smiles = item.smiles.strip()
+    name = item.name.strip()
+
+    check_smiles(smiles)
+
+    molecule.smiles = smiles
+    molecule.name = name
 
     db.commit()
     db.refresh(molecule)
+
+    clear_search_cache()
 
     return {
         "status": "updated",
@@ -177,6 +289,8 @@ def delete_molecule(molecule_id: int, db: Session = Depends(get_db)):
     db.delete(molecule)
     db.commit()
 
+    clear_search_cache()
+
     return {
         "status": "deleted",
         "molecule": result
@@ -205,12 +319,41 @@ def search_in_database(
 ):
     logger.info("POST /search/database")
 
+    substructure = substructure.strip()
+
+    if not substructure:
+        raise HTTPException(status_code=422, detail="Substructure is empty")
+
+    cached_result = get_cached_result(substructure)
+    if cached_result is not None:
+        return {
+            "result": cached_result,
+            "source": "cache"
+        }
+
     molecules = db.query(Molecule).all()
     smiles_list = [molecule.smiles for molecule in molecules]
 
     try:
-        result = substructure_search(smiles_list, substructure)
+        found_smiles = substructure_search(smiles_list, substructure)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
 
-    return {"result": result}
+    unique_smiles = list(dict.fromkeys(found_smiles))
+
+    result = []
+    for smiles in unique_smiles:
+        molecule = db.query(Molecule).filter(Molecule.smiles == smiles).first()
+        if molecule is not None:
+            result.append({
+                "id": molecule.id,
+                "smiles": molecule.smiles,
+                "name": molecule.name
+            })
+
+    save_cached_result(substructure, result)
+
+    return {
+        "result": result,
+        "source": "database"
+    }

@@ -6,34 +6,41 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg2://user:password@db:5432/molecules_db
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - app_network
 
   db:
     image: postgres:15
     container_name: postgres_db
-    restart: always
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: molecules_db
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-    networks:
-      - app_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d molecules_db"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7
+    container_name: redis_cache
+    networks:
+      - app_network
 
 volumes:
   pgdata:
 
 networks:
   app_network:
+    driver: bridge

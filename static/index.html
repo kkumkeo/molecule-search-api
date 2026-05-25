@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Molecule Search API</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #eef5f2;
+            color: #222;
+        }
+
+        header {
+            background: #0f766e;
+            color: white;
+            padding: 24px 20px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 30px;
+        }
+
+        header p {
+            margin: 8px 0 0;
+            font-size: 15px;
+        }
+
+        main {
+            max-width: 1050px;
+            margin: 24px auto;
+            padding: 0 18px 40px;
+        }
+
+        .help {
+            background: white;
+            border: 1px solid #b7d8d1;
+            border-left: 5px solid #0f766e;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+
+        .block {
+            background: white;
+            border: 1px solid #c9dfda;
+            padding: 18px;
+        }
+
+        .wide {
+            grid-column: 1 / 3;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #0f766e;
+            font-size: 22px;
+        }
+
+        label {
+            display: block;
+            margin-top: 12px;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px;
+            border: 1px solid #aac8c2;
+            font-size: 15px;
+        }
+
+        button {
+            margin-top: 12px;
+            padding: 9px 14px;
+            border: 1px solid #0f766e;
+            background: #0f766e;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #115e59;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .secondary {
+            background: white;
+            color: #0f766e;
+        }
+
+        .secondary:hover {
+            background: #e4f3ef;
+        }
+
+        .danger {
+            background: #f8d7da;
+            color: #842029;
+            border: 1px solid #f1aeb5;
+        }
+
+        .danger:hover {
+            background: #f1b0b7;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .muted {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .message {
+            margin-top: 12px;
+            padding: 9px;
+            background: #e7f5ff;
+            border: 1px solid #9ec5fe;
+            color: #084298;
+        }
+
+        .error {
+            margin-top: 12px;
+            padding: 9px;
+            background: #f8d7da;
+            border: 1px solid #f1aeb5;
+            color: #842029;
+        }
+
+        .search-result {
+            margin-top: 14px;
+        }
+
+        .search-count {
+            margin-top: 12px;
+            padding: 9px;
+            background: #d1fae5;
+            border: 1px solid #0f766e;
+            color: #0f766e;
+            font-weight: bold;
+        }
+
+        .result-item {
+            margin-top: 8px;
+            padding: 10px;
+            background: #f5fffc;
+            border: 1px solid #b7d8d1;
+        }
+
+        .result-item b {
+            display: block;
+            color: #0f766e;
+            margin-bottom: 4px;
+        }
+
+        .smiles-text {
+            font-family: monospace;
+        }
+
+        .molecules-list {
+            margin-top: 14px;
+            max-height: 420px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .molecule {
+            margin-top: 10px;
+            padding: 12px;
+            background: #f9fffd;
+            border: 1px solid #c9dfda;
+        }
+
+        .molecule b {
+            color: #0f766e;
+        }
+
+        .page-info {
+            color: #0f766e;
+            font-weight: bold;
+        }
+
+        @media (max-width: 800px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .wide {
+                grid-column: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Molecule Search API</h1>
+    <p>Простое приложение для хранения молекул и поиска по SMILES</p>
+</header>
+
+<main>
+    <div class="help">
+        <b>Как пользоваться:</b>
+        добавь молекулы в базу, потом введи субструктуру SMILES и запусти поиск.
+        Например, для бензольного кольца можно использовать <b>c1ccccc1</b>.
+    </div>
+
+    <div class="grid">
+        <section class="block">
+            <h2>Добавить молекулу</h2>
+
+            <label for="smiles">SMILES</label>
+            <input id="smiles" placeholder="Например: CCO">
+
+            <label for="name">Название</label>
+            <input id="name" placeholder="Например: ethanol">
+
+            <button onclick="addMolecule()">Добавить</button>
+
+            <div id="add-message"></div>
+        </section>
+
+        <section class="block">
+            <h2>Поиск по базе</h2>
+
+            <label for="substructure">Субструктура SMILES</label>
+            <input id="substructure" placeholder="Например: c1ccccc1">
+
+            <button onclick="searchDatabase()">Найти</button>
+
+            <div id="search-result" class="search-result"></div>
+        </section>
+
+        <section class="block wide">
+            <h2>Молекулы в базе</h2>
+
+            <div class="row">
+                <button class="secondary" onclick="loadMolecules()">Обновить список</button>
+                <button class="secondary" onclick="addExamples()">Добавить примеры</button>
+            </div>
+
+            <p class="muted">На одной странице показывается до 10 молекул.</p>
+
+            <div class="row">
+                <button id="prev-button" class="secondary" onclick="previousPage()">Назад</button>
+                <button id="next-button" class="secondary" onclick="nextPage()">Вперед</button>
+                <span id="page-info" class="page-info"></span>
+            </div>
+
+            <div id="molecules" class="molecules-list"></div>
+        </section>
+    </div>
+</main>
+
+<script>
+    let currentSkip = 0;
+    const pageLimit = 10;
+    let totalMolecules = 0;
+
+    function showAddMessage(text, isError) {
+        const block = document.getElementById("add-message");
+        block.className = isError ? "error" : "message";
+        block.textContent = text;
+    }
+
+    function showSearchMessage(text, isError) {
+        const block = document.getElementById("search-result");
+        block.className = "search-result";
+        block.innerHTML = "";
+
+        const div = document.createElement("div");
+        div.className = isError ? "error" : "message";
+        div.textContent = text;
+
+        block.appendChild(div);
+    }
+
+    function updatePagination() {
+        const pageInfo = document.getElementById("page-info");
+        const prevButton = document.getElementById("prev-button");
+        const nextButton = document.getElementById("next-button");
+
+        const currentPage = Math.floor(currentSkip / pageLimit) + 1;
+        const totalPages = Math.max(1, Math.ceil(totalMolecules / pageLimit));
+
+        pageInfo.textContent = "Страница " + currentPage + " из " + totalPages;
+
+        prevButton.disabled = currentSkip === 0;
+        nextButton.disabled = currentSkip + pageLimit >= totalMolecules;
+    }
+
+    async function addMolecule() {
+        const smiles = document.getElementById("smiles").value.trim();
+        const name = document.getElementById("name").value.trim();
+
+        if (!smiles) {
+            showAddMessage("Введите SMILES.", true);
+            return;
+        }
+
+        const response = await fetch("/molecules", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                smiles: smiles,
+                name: name
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            showAddMessage(errorData.detail || "Не удалось добавить молекулу.", true);
+            return;
+        }
+
+        showAddMessage("Молекула добавлена.", false);
+
+        document.getElementById("smiles").value = "";
+        document.getElementById("name").value = "";
+
+        loadMolecules();
+    }
+
+    async function loadMolecules() {
+        const response = await fetch(
+            "/molecules?skip=" + currentSkip + "&limit=" + pageLimit
+        );
+        const data = await response.json();
+
+        totalMolecules = data.total || 0;
+
+        const container = document.getElementById("molecules");
+        container.innerHTML = "";
+
+        if (!data.molecules || data.molecules.length === 0) {
+            container.innerHTML = "<p class='muted'>Молекул пока нет.</p>";
+            updatePagination();
+            return;
+        }
+
+        data.molecules.forEach(function (molecule) {
+            const name = molecule.name || "Без названия";
+
+            container.innerHTML += `
+                <div class="molecule">
+                    <b>${name}</b>
+                    <div class="smiles-text">SMILES: ${molecule.smiles}</div>
+                    <button class="danger" onclick="deleteMolecule(${molecule.id})">Удалить</button>
+                </div>
+            `;
+        });
+
+        updatePagination();
+    }
+
+    async function deleteMolecule(id) {
+        const response = await fetch("/molecules/" + id, {
+            method: "DELETE"
+        });
+
+        if (!response.ok) {
+            showAddMessage("Не удалось удалить молекулу.", true);
+            return;
+        }
+
+        showAddMessage("Молекула удалена.", false);
+
+        if (currentSkip >= totalMolecules - 1 && currentSkip > 0) {
+            currentSkip = Math.max(0, currentSkip - pageLimit);
+        }
+
+        loadMolecules();
+    }
+
+    function nextPage() {
+        if (currentSkip + pageLimit < totalMolecules) {
+            currentSkip = currentSkip + pageLimit;
+            loadMolecules();
+        }
+    }
+
+    function previousPage() {
+        if (currentSkip > 0) {
+            currentSkip = Math.max(0, currentSkip - pageLimit);
+            loadMolecules();
+        }
+    }
+
+    async function searchDatabase() {
+        const substructure = document.getElementById("substructure").value.trim();
+        const block = document.getElementById("search-result");
+
+        block.innerHTML = "";
+
+        if (!substructure) {
+            showSearchMessage("Введите субструктуру.", true);
+            return;
+        }
+
+        const response = await fetch(
+            "/search/database?substructure=" + encodeURIComponent(substructure),
+            {
+                method: "POST"
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            showSearchMessage(data.detail || "Ошибка поиска.", true);
+            return;
+        }
+
+        if (!data.result || data.result.length === 0) {
+            showSearchMessage("Совпадения не найдены.", false);
+            return;
+        }
+
+        block.innerHTML = `
+            <div class="search-count">Найдено молекул: ${data.result.length}</div>
+        `;
+
+        data.result.forEach(function (molecule) {
+            const name = molecule.name || "Без названия";
+
+            block.innerHTML += `
+                <div class="result-item">
+                    <b>${name}</b>
+                    <div class="smiles-text">SMILES: ${molecule.smiles}</div>
+                </div>
+            `;
+        });
+    }
+
+    async function addExamples() {
+        const examples = [
+            {smiles: "CCO", name: "ethanol"},
+            {smiles: "c1ccccc1", name: "benzene"},
+            {smiles: "CC(=O)O", name: "acetic acid"},
+            {smiles: "CC(=O)Oc1ccccc1C(=O)O", name: "aspirin"}
+        ];
+
+        for (const item of examples) {
+            await fetch("/molecules", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(item)
+            });
+        }
+
+        currentSkip = 0;
+        showAddMessage("Примеры добавлены.", false);
+        loadMolecules();
+    }
+
+    loadMolecules();
+</script>
+</body>
+</html>
